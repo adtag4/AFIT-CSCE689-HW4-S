@@ -5,6 +5,7 @@
 #include <memory>
 #include "QueueMgr.h"
 #include "DronePlotDB.h"
+#include "DeDuplicate.h"
 
 /***************************************************************************************
  * ReplServer - class that manages replication between servers. The data is automatically
@@ -31,7 +32,7 @@ public:
 
    // An adjusted time that accounts for "time_mult", which speeds up the clock. Any
    // attempts to check "simulator time" should use this function
-   time_t getAdjustedTime();
+   double getAdjustedTime();
 
 private:
 
@@ -63,6 +64,12 @@ private:
    // Used to bind the server
    std::string _ip_addr;
    unsigned short _port;
+   
+   // election info - in DeDuplicate?
+   //unsigned int lowestSID; // this is a good leader
+   //float lowestTimeOff;    // leader's time offset
+   
+   DeDuplicate dd; // for stuffs
 };
 
 

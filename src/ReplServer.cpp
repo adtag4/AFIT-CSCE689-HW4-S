@@ -21,7 +21,8 @@ ReplServer::ReplServer(DronePlotDB &plotdb, float time_mult)
                                _time_mult(time_mult),
                                _verbosity(1),
                                _ip_addr("127.0.0.1"),
-                               _port(9999)
+                               _port(9999),
+							   dd(plotdb, 1)
 {
    _start_time = time(NULL);
 }
@@ -34,7 +35,8 @@ ReplServer::ReplServer(DronePlotDB &plotdb, const char *ip_addr, unsigned short 
                                   _time_mult(time_mult), 
                                   _verbosity(verbosity),
                                   _ip_addr(ip_addr),
-                                  _port(port)
+                                  _port(port),
+								  dd(plotdb, 1)
 
 {
    _start_time = time(NULL) + offset;
@@ -50,8 +52,8 @@ ReplServer::~ReplServer() {
  *                   by _time_mult to speed up or slow down
  **********************************************************************************************/
 
-time_t ReplServer::getAdjustedTime() {
-   return static_cast<time_t>((time(NULL) - _start_time) * _time_mult);
+double ReplServer::getAdjustedTime() {
+   return static_cast<double>(time(nullptr) - _start_time) * _time_mult;
 }
 
 /**********************************************************************************************
@@ -218,12 +220,13 @@ void ReplServer::addSingleDronePlot(std::vector<uint8_t> &data) {
    DronePlot tmp_plot;
 
    tmp_plot.deserialize(data);
-
+   if(dd.checkDuplicate(tmp_plot)){
    _plotdb.addPlot(tmp_plot.drone_id, tmp_plot.node_id, tmp_plot.timestamp, tmp_plot.latitude,
-                                                         tmp_plot.longitude);
+   tmp_plot.longitude);}
 }
 
 
 void ReplServer::shutdown() {
+   dd.finalRun();
    _shutdown = true;
 }

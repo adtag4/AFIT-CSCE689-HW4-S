@@ -4,6 +4,7 @@
 #include <crypto++/secblock.h>
 #include "FileDesc.h"
 #include "LogMgr.h"
+#include <random>
 
 const int max_attempts = 2;
 
@@ -16,7 +17,7 @@ public:
    ~TCPConn();
 
    // The current status of the connection
-   enum statustype { s_none, s_connecting, s_connected, s_datatx, s_datarx, s_waitack, s_hasdata };
+   enum statustype { s_none, s_connecting, s_connected, s_datatx, s_datarx, s_waitack, s_hasdata, s_scs, s_scv, s_scw, s_ccw, s_ccs, s_ccv };
 
    statustype getStatus() { return _status; };
 
@@ -67,6 +68,8 @@ public:
 
    // Assign outgoing data and sets up the socket to manage the transmission
    void assignOutgoingData(std::vector<uint8_t> &data);
+   
+   
 
 protected:
    // Functions to execute various stages of a connection 
@@ -75,6 +78,16 @@ protected:
    void transmitData();
    void waitForData();
    void awaitAck();
+   
+   // Authentication functions 
+   void doSCS();
+   void doSCV();
+   void doSCW();
+   void doCCW();
+   void doCCS();
+   void doCCV();
+   
+   void makeRandoBits(std::vector<uint8_t>& dst);
 
    // Looks for commands in the data stream
    std::vector<uint8_t>::iterator findCmd(std::vector<uint8_t> &buf,
@@ -111,7 +124,9 @@ private:
    std::vector<uint8_t> _outputbuf;
 
    CryptoPP::SecByteBlock &_aes_key; // Read from a file, our shared key
-   std::string _authstr;   // remembers the random authorization string sent
+   //STDSTRINGS ARE DUMB std::string _authstr;   // remembers the random authorization string sent
+
+   std::vector<uint8_t> myRandoBits;
 
    unsigned int _verbosity;
 

@@ -91,7 +91,7 @@ bool TCPConn::accept(SocketFD &server) {
 
 
    // Set the state as waiting for the authorization packet
-   _status = s_connected;
+   _status = s_scs; // but nah - that can wait for authentication
    _connected = true;
    return results;
 }
@@ -200,6 +200,32 @@ void TCPConn::handleConnection() {
          // Server: Data received and conn disconnected, but waiting for the data to be retrieved
          case s_hasdata:
             break;
+			
+		 case s_scs:
+			//std::cout << "SCS" << std::endl;
+			doSCS();
+			break;
+		 case s_scw:
+			//std::cout << "SCW" << std::endl;
+			doSCW();
+			break;
+		 case s_scv:
+			//std::cout << "SCV" << std::endl;
+			doSCV();
+			break;
+		 case s_ccs:
+			//std::cout << "CCS" << std::endl;
+			doCCS();
+			break;
+		 case s_ccv:
+			//std::cout << "CCV" << std::endl;
+			doCCV();
+			break;
+		 case s_ccw:
+			//std::cout << "CCW" << std::endl;
+			doCCW();
+			break;
+		 
 
          default:
             throw std::runtime_error("Invalid connection status!");
@@ -555,7 +581,7 @@ void TCPConn::getInputData(std::vector<uint8_t> &buf) {
 void TCPConn::connect(const char *ip_addr, unsigned short port) {
 
    // Set the status to connecting
-   _status = s_connecting;
+   _status = s_ccw; // or nah - do authentication
 
    // Try to connect
    if (!_connfd.connectTo(ip_addr, port))
@@ -567,7 +593,7 @@ void TCPConn::connect(const char *ip_addr, unsigned short port) {
 // Same as above, but ip_addr and port are in network (big endian) format
 void TCPConn::connect(unsigned long ip_addr, unsigned short port) {
    // Set the status to connecting
-   _status = s_connecting;
+   _status = s_ccw;
 
    if (!_connfd.connectTo(ip_addr, port))
       throw socket_error("TCP Connection failed!");
@@ -622,3 +648,153 @@ const char *TCPConn::getIPAddrStr(std::string &buf) {
    return buf.c_str();
 }
 
+void genRandoBits(std::vector<uint8_t>& dst)
+{
+	int sz = 16; // auth str size
+	// c++ magic to abstract randomness which is really not as 
+	// intuitive as regular c - heard about from Lt Voltz
+	// (BUT WE PROMISE - C++ ABSTRACTION MAKES IT EASIER)
+	std::default_random_engine horsePower{std::random_device{}()}; //basically equiv to srand()
+	std::uniform_int_distribution<uint8_t> stats(0,255); //actually does rand
+	
+	// gotta make sure vector is sized correctly
+	while(dst.size() < sz)
+	{
+		dst.push_back(0xAD);
+	}
+	
+	for(auto & THING : dst)
+	{
+		THING = stats(horsePower);
+	}
+}
+
+void TCPConn::doSCS()
+{
+	// make sure buf is empty my dudes
+	if(_connfd.hasData())
+	{
+		std::vector<uint8_t> devNull; // because it has no future
+		getData(devNull);
+	}
+	
+	// generate the random bits for auth and send
+	genRandoBits(myRandoBits);
+	auto copyRando(myRandoBits);
+	wrapCmd(copyRando, c_auth, c_endauth);
+	sendData(copyRando);
+	
+	_status = s_scv;
+}
+
+void TCPConn::doCCS()
+{
+	// parent gonna loop if nothing recvd yet
+	if(_connfd.hasData())
+	{
+		std::vector<uint8_t> devNull; // because it has no future
+		getData(devNull); // Actually though, it is just an administrative reply
+						// showing the previous step succeeded, so as long 
+						// as it exists, that is sufficient
+		
+		// generate the random bits for auth and send
+		genRandoBits(myRandoBits);
+		auto copyRando(myRandoBits);
+		wrapCmd(copyRando, c_auth, c_endauth);
+		sendData(copyRando);
+		
+		_status = s_ccv;
+	}
+}
+
+void TCPConn::doSCV()
+{
+	if(_connfd.hasData())
+	{
+		std::vector<uint8_t> reply;
+		if(!getEncryptedData(reply));
+		else if(!getCmdData(reply, c_auth, c_endauth))
+		{
+			_server_log.writeLog("YOU SUCK because data was invalid in doSCV()");
+			disconnect();
+		}
+		else if(reply == myRandoBits)
+		{
+			std::vector<uint8_t> adminYES;
+			adminYES.push_back(0xAD);
+			sendData(adminYES); // other side is only checking for existence, not content
+			_status = s_scw;
+		}
+		else
+		{
+			disconnect();
+		}
+		
+	}
+}
+
+void TCPConn::doCCV()
+{
+	if(_connfd.hasData())
+	{
+		std::vector<uint8_t> reply;
+		if(!getEncryptedData(reply));
+		else if(!getCmdData(reply, c_auth, c_endauth))
+		{
+			_server_log.writeLog("YOU SUCK because data was invalid in doSCV()");
+			disconnect();
+		}
+		else if(reply == myRandoBits)
+		{
+			std::vector<uint8_t> adminYES;
+			adminYES.push_back(0xAD);
+			sendData(adminYES); // other side is only checking for existence, not content
+			_status = s_connecting;
+		}
+		else
+		{
+			disconnect();
+		}
+		
+	}
+}
+
+void TCPConn::doSCW()
+{
+	if(_connfd.hasData())
+	{
+		std::vector<uint8_t> otherChall;
+		if(!getData(otherChall));
+		else if(!getCmdData(otherChall, c_auth, c_endauth))
+		{
+			_server_log.writeLog("Unexpected format in doSCW");
+			disconnect();
+		}
+		else
+		{
+			wrapCmd(otherChall, c_auth, c_endauth);
+			sendEncryptedData(otherChall);
+			_status = s_connected;
+		}
+	}
+}
+
+void TCPConn::doCCW()
+{
+	if(_connfd.hasData())
+	{
+		std::vector<uint8_t> otherChall;
+		if(!getData(otherChall));
+		else if(!getCmdData(otherChall, c_auth, c_endauth))
+		{
+			_server_log.writeLog("Unexpected format in doSCW");
+			disconnect();
+		}
+		else
+		{
+			wrapCmd(otherChall, c_auth, c_endauth);
+			sendEncryptedData(otherChall);
+			_status = s_ccs;
+		}
+	}
+}
